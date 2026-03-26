@@ -1,4 +1,6 @@
 // This file initializes the CHIP8 processor and has the tools to simulate a cycle
+#include <string.h>
+
 #include "chip8.h"
 #include "cpu.h"
 
@@ -28,13 +30,16 @@ void chip8_init(Chip8* c) {
 
     memcpy(&c->memory[0x00], fontset, 80);
 }
+
 void chip8_cycle(Chip8* c) {
     // Fetch instruction from memory
     uint16_t opcode = (c->memory[c->pc] << 8) + c->memory[c->pc + 1]; 
 
     // Execute
     cpu_execute(c, opcode);
+}
 
-    if (c->delay_timer > 0) c-> delay_timer--;
-    if (c->sound_timer > 0) c-> sound_timer--;
+void chip8_update_timers(Chip8* c) {
+    if (c->delay_timer > 0) c->delay_timer--;
+    if (c->sound_timer > 0) c->sound_timer--;    
 }

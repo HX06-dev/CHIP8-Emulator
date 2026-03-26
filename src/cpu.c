@@ -15,6 +15,11 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
     switch (opcode & 0xF000) { // Extracts the first bit to determine what type of instruction it is
         case 0x0000: {
             switch (opcode) {
+                case 0x0000: { // NOP: NOP
+                    c->pc += 2;
+                    break;
+                }
+
                 case 0x00E0: { // CLS: clear screen
                     memset(c->frame_buffer, 0, sizeof(c->frame_buffer));
                     c->pc += 2;
@@ -35,6 +40,7 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
                     exit(1);
                 }
             }
+            break;
         }
         
         case 0x1000: { // JP addr: Jump to location nnn
@@ -47,6 +53,7 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
             // The interpreter increments the stack pointer, then puts the current PC on the top
             // of the stack. The PC is then set to nnn.
             c->sp++;
+            c->stack[c->sp] = c->pc;
             c->pc = opcode & 0x0FFF;
             break;
         }
@@ -153,7 +160,7 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
                     break;
                 }
 
-                case 0x0008: { // SHL Vx {, Vy}: Set Vx = Vx SHL 1
+                case 0x000E: { // SHL Vx {, Vy}: Set Vx = Vx SHL 1
                     // If the most-significant bit of Vx is 1, then VF is set to 1, otherwise to 0. 
                     // Then Vx is multiplied by 2.
                     c->V[0xF] = (c->V[x] & 0x80) >> 7;
@@ -163,14 +170,15 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
                 }
 
                 default: {
-                    fprintf(stderr, "Unknown opcode: %04X\n", opcode);
+                    fprintf(stderr, "Unknown opcode: %04X at PC=%03X SP=%u\n", opcode, c->pc, c->sp);
                     exit(1);
                 }
             }
+            break;
         }
 
         case 0x9000: { // SNE Vx, Vy: Skip next instruction if Vx != Vy
-            if(c->V[x] == c->V[y]) c->pc += 2;
+            if(c->V[x] != c->V[y]) c->pc += 2;
             c->pc += 2;
             break;
         }
@@ -201,11 +209,31 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
             // If this causes any pixels to be erased, VF is set to 1, otherwise it is set to 0.
             // If the sprite is positioned so part of it is outside the coordinates of the display, it wraps around to the opposite side of the screen.
             uint8_t n = opcode & 0x000F;
-            uint8_t Vx = c->V[x];
-            uint8_t Vy = c->V[y];
 
             c->V[0xF] = 0; // reset collision flag
-            // TODO
+            for (int row = 0; row < n; row++) {
+                unsigned char sprite_byte = c->memory[c->I + row];
+
+                for (int col=0; col < 8; col++) {
+                    if (sprite_byte & (0x80 >> col)) { // checks if current bit is set (left to right)
+                        
+                        int screen_x = (c->V[x] + col) % 64;
+                        int screen_y = (c->V[y] + row) % 32;
+
+                        int index = screen_y * 64 + screen_x;
+
+                        if (c->frame_buffer[index] == 1) {
+                            c->V[0xF] = 1; // Collision detected
+                        }
+
+                        c->frame_buffer[index] ^= 1;
+                    }
+
+                }
+            }
+
+            c->pc += 2;
+            break;
         }
 
         case 0xE000: {
@@ -225,10 +253,11 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
                 }
                 
                 default: {
-                    fprintf(stderr, "Unknown opcode: %04X\n", opcode);
+                    fprintf(stderr, "Unknown opcode: %04X at PC=%03X SP=%u\n", opcode, c->pc, c->sp);
                     exit(1);
                 }
             }
+            break;
         }
 
         case 0xF000: {
@@ -253,18 +282,67 @@ void cpu_execute(Chip8* c, uint16_t opcode) {
                 case 0x0015: { // LD DT, Vx: Set delay timer = Vx
                     c->delay_timer = c->V[x];
                     c->pc += 2;
+                    break;
                 }
 
                 case 0x0018: { // LD ST, Vx: Set sound timer = Vx
                     c->sound_timer = c->V[x];
                     c->pc += 2;
+                    break;
                 }
 
                 case 0x001E: { // ADD I, Vx: Set I = I + Vx
                     c->I += c->V[x];
                     c->pc += 2;
+                    break;
+                }
+
+                case 0x0029: { // LD F, Vx: Set I = location for sprite for digit Vx
+                    // To obtain this value, multiply Vx by 5
+                    c->I = c->V[x] * 5;
+                    c->pc += 2;
+                    break;
+                }
+
+                case 0x0033: { // LD B, Vx: Store BCD representation of Vx in memory locations I, I+1, and I+2
+                    // The interpreter takes the decimal value of Vx, and places the hundreds digit in memory at location in I, the tens digit at location I+1, and
+                    // the ones digit at location I+2
+                    c->memory[c->I] = c->V[x] / 100;
+                    c->memory[c->I + 1] = (c->V[x] / 10) % 10;
+                    c->memory[c->I + 2] = c->V[x] % 10;
+                    c->pc += 2;
+                    break;
+                }
+
+                case 0x0055: { // LD [I], Vx: Stores V0 to Vx in memory starting at address I. I is then set to I + x + 1
+                    for (int i = 0; i <= x; i++) {
+                        c->memory[c->I + i] = c->V[i];
+                    }
+                    c->I += x + 1;
+                    c->pc += 2;
+                    break;
+                }
+
+                case 0x0065: { // LD Vx, [I]: Fills V0 to Vx with values from memory starting at address I. I is then set to I + x + 1
+                    for (int i = 0; i <= x; i++) {
+                        c->V[i] = c->memory[c->I + i];
+                    }
+                    c->I += x + 1;
+                    c->pc += 2;
+                    break;
+                }
+
+                default: {
+                    fprintf(stderr, "Unknown opcode: %04X at PC=%03X SP=%u\n", opcode, c->pc, c->sp);
+                    exit(1);
                 }
             }
+            break;
+        }
+
+        default: {
+            fprintf(stderr, "Unknown opcode: %04X at PC=%03X SP=%u\n", opcode, c->pc, c->sp);
+            exit(1);
         }
     }
 }

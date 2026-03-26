@@ -9,7 +9,7 @@ int rom_load(Chip8* c, const char* filename) {
     FILE* file = fopen(filename, "rb");
     if (file == NULL) {
         perror("fread");
-        exit(1);
+        return 1;
     }
 
     // Check if ROM is too big
@@ -18,7 +18,7 @@ int rom_load(Chip8* c, const char* filename) {
     if (size > (4096 - 0x200)) {
         fprintf(stderr, "ROM too large: %ld bytes\n", size);
         fclose(file);
-        exit(1);
+        return 1;
     }
     rewind(file);
 

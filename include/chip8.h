@@ -22,5 +22,6 @@ typedef struct {
 
 void chip8_init(Chip8* c); // Initializes the processor
 void chip8_cycle(Chip8* c); // Simulates a cycle
+void chip8_update_timers(Chip8* c); // Update the timers
 
 #endif
